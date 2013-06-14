@@ -1,0 +1,101 @@
+<?php
+
+function diyweb_user_operations() {
+  $operations = array(
+    'mail' => array(
+      'label' => t('Send DIYweb mail'),
+      'callback' => 'diyweb_send_diyweb_mail',
+    ),
+    'reset-pass' => array(
+      'label' => t('Send one-time login link'),
+      'callback' => 'diyweb_send_otl'
+    )
+  );
+  return $operations;
+}
+
+function diyweb_form_user_admin_account_alter(&$form, &$form_state, $form_id) {
+  #dpm($form);
+  $form['options']['submit']['#value'] = t('Execute');
+  $form['options']['operation']['#default_value'] = 'mail'; 
+}
+
+function diyweb_send_otl($accounts) {
+  $accounts = user_load_multiple($accounts);
+  foreach($accounts as $account) {
+    user_pass_reset_url($account);
+  }
+}
+
+function diyweb_send_diyweb_mail($accounts) {
+  $accounts = user_load_multiple($accounts);
+  foreach($accounts as $account) {
+    $module = 'diyweb';
+    $key = 'key';
+    $system = drupal_mail_system($module, $key);
+    $message = drupal_mail($module, $key, $account->mail, language_default(), array(), 'tolga@ozses.net', FALSE);
+    $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed';
+    $sentMessage = array();
+    $sentMessage[] = 'Dear '.$account->name.',';
+    $sentMessage[] = 'Your website is ready. You can log in to our site and pay for your order.';
+    $sentMessage[] = 'Please browse to http://'.$_SERVER["HTTP_HOST"].'/user?destination=cart';
+    $sentMessage[] = 'Regards,';
+    $sentMessage[] = 'DIYweb';
+    $message['subject'] = 'Your website is ready!';
+    $message['body'] = implode('<br/>', $sentMessage);
+    $message['result'] = $system->mail($message);
+  }
+  drupal_set_message('The e-mail has been sent.');
+}
+
+function diyweb_webform_submission_insert($node, $submission){
+  $email = $submission->data[13][0]; // You may need to check this.
+  $name = (isset($submission->data[10][0])) ? $submission->data[10][0] : $submission->data[9][0];
+  $password = $name;
+  require_once DRUPAL_ROOT . '/' . variable_get('password_inc', 'includes/password.inc');
+  $hashpass = user_hash_password(trim($password));
+  $account = new stdClass();
+  $account->mail = $email;
+  $account->name = $name;
+  $account->pass = $hashpass;
+  $account->status = 1;
+  $account->init = $email;
+  $account->roles = array(
+    DRUPAL_AUTHENTICATED_RID => 'authenticated user',
+  );
+  $new_user = user_save($account);
+  $submission->uid = $new_user->uid;
+  $module = 'diyweb';
+  $key = 'key';
+  $message = drupal_mail($module, $key, $account->mail, language_default(), array(), 'tolga@ozses.net', FALSE);
+  $system = drupal_mail_system($module, $key);
+  $message = drupal_mail($module, $key, $account->mail, language_default(), array(), 'tolga@ozses.net', FALSE);
+  $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed';
+  $sentMessage = array();
+  $sentMessage[] = 'Dear '.$account->name.',';
+  $sentMessage[] = 'Your password is '.$name.'. Please note it. You will need it later';
+  $message['subject'] = 'Your account at DIYweb';
+  $message['body'] = implode('<br/>', $sentMessage);
+  $message['result'] = $system->mail($message);
+  drupal_set_message('The e-mail has been sent.');
+}
+
+function diyweb_webform_select_options_info() {
+  $items = array();
+  if (function_exists('get_image_names')) {
+    $items['image-names'] = array(
+      'title' => t('Image names'),
+      'options callback' => 'get_image_names',
+    );
+  }
+  return $items;
+}
+
+function get_image_names() {
+  $image_names = views_get_view_result('templates', 'block');
+  $options = array();
+  foreach ($image_names as $image_name) {
+    $options[$image_name->nid] = theme('image', array('path' => $image_name->field_field_theme_image[0]['rendered']['#item']['uri']));
+  }
+  return $options;
+}
